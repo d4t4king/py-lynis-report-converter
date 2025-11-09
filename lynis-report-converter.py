@@ -10,6 +10,11 @@ from termcolor import cprint
 VERSION = 0.1
 
 def to_bool(val) -> bool:
+    """
+    Convert a value to boolean
+    Returns True if val = 1
+    Returns False if val is 0 or None
+    """
     if val == 0 or val is None:
         return False
     elif val == 1:
@@ -18,7 +23,16 @@ def to_bool(val) -> bool:
         raise Exception("Unrecognized value.  Could not convert to boolean.")
     
 def vm_mode(mode: int) -> object:
+    """
+    Translates a trinary code to the type of Virtualization device.  
+    0 = no virtualization, aka raw metal
+    1 = device is a virtual guest
+    2 = device is a virtual host
+    Again, debatable if this is better as a dict/constant.
+    TODO
+    """
     if mode == 0:
+        # Since None is a concept in python that doesn't exist in perl, maybe this would be better as None?
         return False
     elif mode == 1:
         return 'guest'
@@ -28,6 +42,12 @@ def vm_mode(mode: int) -> object:
         raise Exception("Unrecognized value.  Could not establish VM mode.")
     
 def to_long_severity(sev: str) -> object:
+    """
+    Translates a letter prompt in the report to the long human-readable severity name.
+    Debatable if this is better as a dict....or an enum, but I don't think this is how
+    enums work in python.  Maybe a constant?
+    TODO
+    """
     if sev == 'C':
         return 'Critical'
     elif sev == 'S':
@@ -45,7 +65,10 @@ def to_long_severity(sev: str) -> object:
     else:
         return None
     
-def systemd_uf_status_color(status: str) -> str:
+def systemd_uf_status_color(status: str) -> object:
+    """
+    Sets the HTML color for the systemd status
+    """
     if status == 'enabled':
         return '#00ff00'
     elif status == 'disabled':
@@ -54,14 +77,24 @@ def systemd_uf_status_color(status: str) -> str:
         return 'inherit'
     elif status == 'masked':
         return 'goldenrod'
+    else:
+        return None
     
 def is_prime(num):
+    """
+    Checks if an integer num is a prime number.
+    Returns True is num is prime, False otherwise.
+    """
+
+    # Prime numbers must be greater than 1
     if num <= 1:
         return False
     
+    # 2 is the only even prime number
     if num == 2:
         return True
     
+    # All other even numbers are not prime
     if num % 2 == 0:
         return False
     
@@ -75,6 +108,11 @@ def is_prime(num):
     return True
 
 def calc_password_complexity_score(lynis_report_data: dict) -> str:
+    """
+    Converts the flags in the report to a binary number.
+    This is more or less verbatim from the perl version, so this may need some tweaking.
+    TODO
+    """
     if 'password_max_1_credit' in lynis_report_data.keys():
         lc  = '0b0001'
     else:
@@ -107,32 +145,62 @@ def main():
     parser.add_argument('-i', '--input', dest='input', required=False, default='/var/log/lynis-report.dat', help="Specify the input file")
     parser.add_argument('-o', '--output', dest='output', required=False, help="The name of the file to write output.")
     parser.add_argument('--version', dest='version', required=False, action='store_true', help='Prints the version and exits')
-    parser.add_argument('-E', '--excel', dest='excel', required=False, action='store_true', help='Output to Microsoft Excel')
-    parser.add_argument('-p', '--pdf', dest='pdf', required=False, action='store_true', help="Output to PDF")
-    parser.add_argument('-j', '--json', dest='json', required=False, action='store_true', help='Output in JSON')
-    parser.add_argument('-x', '--xml', dest='xml', required=False, action='store_true', help='Output to XML')
+    fmts = parser.add_mutually_exclusive_group()
+    fmts.add_argument('-E', '--excel', dest='excel', required=False, action='store_true', help='Output to Microsoft Excel')
+    fmts.add_argument('-p', '--pdf', dest='pdf', required=False, action='store_true', help="Output to PDF")
+    fmts.add_argument('-j', '--json', dest='json', required=False, action='store_true', help='Output in JSON')
+    fmts.add_argument('-x', '--xml', dest='xml', required=False, action='store_true', help='Output to XML')
     args = parser.parse_args()
 
     if args.debug:
         args.verbose = True
 
+    if args.excel:
+        ext = "xlsx"
+        output_format = 'excel'
+    elif args.pdf:
+        ext = "pdf"
+        output_format = 'pdf'
+    elif args.json:
+        ext = 'json'
+        output_format = 'json'
+    elif args.xml:
+        ext = 'xml'
+        output_format = 'xml'
+    else:
+        ext = 'html'
+        output_format = 'html'
+
     if not args.output:
-        if args.excel:
-            args.output = 'report.xlsx'
-        elif args.pdf:
-            args.output = 'report.pdf'
-        elif args.json:
-            args.output = 'report.json'
-        elif args.xml:
-            args.output = 'report.xml'
-        else:
-            args.output = 'report.html'
+        args.output = f"report.{ext}"
+    else:
+        if args.output.count('/') > 0:
+            print(f"Output: {args.output}")
+            print(f"Basename of Output: {os.path.basename(args.output)}")
+            if (os.path.basename(args.output) == '' or os.path.basename(args.output) is None) \
+                or os.path.isdir(args.output):
+                if args.output[-1] == '/':
+                    args.output = f"{args.output}report.{ext}"
+                else:
+                    args.output = f"{args.output}/report.{ext}"
 
     lynis_log = '/var/log/lynis.log'
     audit_run = False
     lynis_report_date = {}
 
-
+    if not args.quiet:
+        cprint(f"Outputting report to {args.output}, in ", "green", end="")
+        if args.excel:
+            cprint("Excel ", "green", end="")
+        elif args.pdf:
+            cprint(f"PDF ", "green", end="")
+        elif args.xml:
+            cprint("XML ", "green", end="")
+        elif args.json:
+            cprint("JSON ", "green", end="")
+        else:
+            cprint("HTML ", "green", end="")
+        cprint("format.", "green")
 
 
 if __name__=='__main__':
