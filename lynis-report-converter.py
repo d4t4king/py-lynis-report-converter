@@ -4,6 +4,7 @@ import pprint
 import argparse
 import os
 import math
+import re
 
 from termcolor import cprint
 
@@ -21,6 +22,13 @@ def to_bool(val) -> bool:
         return True
     else:
         raise Exception("Unrecognized value.  Could not convert to boolean.")
+    
+def is_empty_or_none(strng: str) -> bool:
+    """ Checks if a string is None or empty ('')"""
+    if strng is None or not strng:
+        return True
+    else:
+        return False
     
 def vm_mode(mode: int) -> object:
     """
@@ -186,7 +194,7 @@ def main():
 
     lynis_log = '/var/log/lynis.log'
     audit_run = False
-    lynis_report_date = {}
+    lynis_report_data = {}
 
     if not args.quiet:
         cprint(f"Outputting report to {args.output}, in ", "green", end="")
@@ -202,6 +210,54 @@ def main():
             cprint("HTML ", "green", end="")
         cprint("format.", "green")
 
+    # start processing the report/data
+    if os.path.exists(args.input):
+        with open(args.input, 'r') as ifile:
+            for line in ifile:
+                if re.match('^#', line):                            # skip commented lines
+                    continue
+                parts = line.split('=')
+                if len(parts) > 2:                                  # errant = somewhere in either the key or the value
+                    match = re.search("^(.+?)=(.+)", line)
+                    if match:
+                        key = match.group(1)
+                        value = match.group(2)
+                    else:
+                        cprint(f"Line did not match: ", "red", end="")
+                        print(line)
+                else:
+                    key, value = line.split("=")
+                if is_empty_or_none(value):
+                    if output_format == 'excel' or output_format == 'json':
+                        value = 'NA'
+                    else:
+                        value = '&nbsp;'
+                if args.verbose:
+                    cprint(f"k: {key}, v: {value}", "yellow")
+                if key in lynis_report_data.keys():
+                    if 'list' in str(type(lynis_report_data[key])):
+                        lynis_report_data[key].append(value)
+                    else:
+                        temp_v = lynis_report_data[key]
+                        del lynis_report_data[key]
+                        if re.match("(?:&nbsp;|NA)", temp_v):
+                            lynis_report_data[key] = [value]
+                        else:
+                            lynis_report_data[key] = [temp_v, value]
+                else:
+                    lynis_report_data[key] = value
+    else:
+        raise FileNotFoundError(f"Could not file input file ({args.input}).")
+    
+    keys_to_zeroize = ["container", "notebook", "apparmor_enabled", "apparmor_policy_loaded"]
+    for k in keys_to_zeroize:
+        if lynis_report_data[k] != 1:
+            lynis_report_data[k] = 0
+
+    
+    
+                
+    pp.pprint(lynis_report_data)
 
 if __name__=='__main__':
     main()
