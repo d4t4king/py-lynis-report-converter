@@ -141,6 +141,10 @@ def calc_password_complexity_score(lynis_report_data: dict) -> str:
     score = lc + uc + n + o
     return score
 
+def dedup_list(loo: list) -> list:
+    # loo = list of objects
+    return list(set(loo))
+
 def main():
     pp = pprint.PrettyPrinter(indent=4)
 
@@ -214,10 +218,13 @@ def main():
     if os.path.exists(args.input):
         with open(args.input, 'r') as ifile:
             for line in ifile:
-                if re.match('^#', line):                            # skip commented lines
+                # skip commented lines
+                if re.match('^#', line):
                     continue
                 parts = line.split('=')
-                if len(parts) > 2:                                  # errant = somewhere in either the key or the value
+                # errant = somewhere in either the key or the value
+                # so grab they key/value with regex instead of split()
+                if len(parts) > 2:
                     match = re.search("^(.+?)=(.+)", line)
                     if match:
                         key = match.group(1)
@@ -249,14 +256,31 @@ def main():
     else:
         raise FileNotFoundError(f"Could not file input file ({args.input}).")
     
+    # Somehow newlines are getting into the data.  This is mostly harmless, 
+    # but can make numbers look like strings, etc.  Easier and cleaner, just
+    # to strip it out now.
+
+    
+    # If not 1 (True?) set to 0 (False?)
     keys_to_zeroize = ["container", "notebook", "apparmor_enabled", "apparmor_policy_loaded"]
     for k in keys_to_zeroize:
         if lynis_report_data[k] != 1:
             lynis_report_data[k] = 0
 
-    
-    
-                
+    # This tracks (or tracked) automation tools that were actively running.  These
+    # would be things like saltstack, puppet, chef, etc.  So, I suspect 1 of 3 
+    # things happened:
+    # 1) they renamed the index in the log
+    # 2) the current target system doesn't have any running automation tools, therefore
+    #       the index never gets populated in the output.
+    # 3) I forgot....
+    if 'automation_tool_running[]' in lynis_report_data.keys():
+        if 'list' in str(type(lynis_report_data['automation_tool_running[]'])):
+            lynis_report_data['automation_tool_running[]'] = dedup_list(lynis_report_data['automation_tool_running[]'])
+        pp.pprint(lynis_report_data['automation_tool_running[]'])
+    else:
+        cprint(f"automation_tool_running[] expected but not found in lynis report data.", "cyan")
+
     pp.pprint(lynis_report_data)
 
 if __name__=='__main__':
