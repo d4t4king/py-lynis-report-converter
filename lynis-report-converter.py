@@ -5,8 +5,12 @@ import argparse
 import os
 import math
 import re
+import json
 
 from termcolor import cprint
+
+# =====
+import Data
 
 VERSION = 0.1
 
@@ -145,7 +149,23 @@ def dedup_list(loo: list) -> list:
     # loo = list of objects
     return list(set(loo))
 
+def blob_to_list(textblob: str, delim: str =' ') -> list:
+    """
+    take a blob of text separated by either spaces or pipes.
+    split() out the non-delimiter sections into a list
+    dedupify the list
+    return that list
+    """
+    print(f"Textblob: {textblob}")
+    # Delimiter will be either a space (" ") or a pipe ("|").
+    parts = textblob.split(delim)
+    return list(set(parts))
+    
 def main():
+    # if we aren't root (or at least sudo), no point in going farther.
+    uid = os.getuid()
+    print(f"User ID: {uid}")
+
     pp = pprint.PrettyPrinter(indent=4)
 
     # Prepare the arguments
@@ -157,6 +177,7 @@ def main():
     parser.add_argument('-i', '--input', dest='input', required=False, default='/var/log/lynis-report.dat', help="Specify the input file")
     parser.add_argument('-o', '--output', dest='output', required=False, help="The name of the file to write output.")
     parser.add_argument('--version', dest='version', required=False, action='store_true', help='Prints the version and exits')
+    parser.add_argument('--screen', dest='screen', required=False, action='store_true', help="Dumps the file output to the screen instead of output.")
     fmts = parser.add_mutually_exclusive_group()
     fmts.add_argument('-E', '--excel', dest='excel', required=False, action='store_true', help='Output to Microsoft Excel')
     fmts.add_argument('-p', '--pdf', dest='pdf', required=False, action='store_true', help="Output to PDF")
@@ -196,6 +217,11 @@ def main():
                 else:
                     args.output = f"{args.output}/report.{ext}"
 
+    if args.input == '/var/log/lynis-report.dat':
+        print(f"Using the default input as {args.input}")
+    else:
+        print(f"Reading lynis data from path specified on the command line: {args.input}")
+
     lynis_log = '/var/log/lynis.log'
     audit_run = False
     lynis_report_data = {}
@@ -218,14 +244,15 @@ def main():
     if os.path.exists(args.input):
         with open(args.input, 'r') as ifile:
             for line in ifile:
+                line = line.strip()
                 # skip commented lines
-                if re.match('^#', line):
+                if re.match(r"^\s*#", line):
                     continue
                 parts = line.split('=')
                 # errant = somewhere in either the key or the value
                 # so grab they key/value with regex instead of split()
                 if len(parts) > 2:
-                    match = re.search("^(.+?)=(.+)", line)
+                    match = re.search(r"^(.+?)=(.+)", line)
                     if match:
                         key = match.group(1)
                         value = match.group(2)
@@ -240,7 +267,8 @@ def main():
                     else:
                         value = '&nbsp;'
                 if args.verbose:
-                    cprint(f"k: {key}, v: {value}", "yellow")
+                    cprint(f"k: {key}, ", "cyan", end="")
+                    cprint(f"v: {value}", "yellow")
                 if key in lynis_report_data.keys():
                     if 'list' in str(type(lynis_report_data[key])):
                         lynis_report_data[key].append(value)
@@ -256,16 +284,18 @@ def main():
     else:
         raise FileNotFoundError(f"Could not file input file ({args.input}).")
     
-    # Somehow newlines are getting into the data.  This is mostly harmless, 
-    # but can make numbers look like strings, etc.  Easier and cleaner, just
-    # to strip it out now.
+    if 'finish' in lynis_report_data.keys():
+        if lynis_report_data['finish']:
+            print(f"Lynis audit completed successfully.")
+        else:
+            print(f"Lynis audit did not complete successfully.  Please run the audit again and try the report converter once it has completed successfully.")
 
-    
+    ### I don't know if we still need to zeroize these....  - 11/16/2025
     # If not 1 (True?) set to 0 (False?)
-    keys_to_zeroize = ["container", "notebook", "apparmor_enabled", "apparmor_policy_loaded"]
-    for k in keys_to_zeroize:
-        if lynis_report_data[k] != 1:
-            lynis_report_data[k] = 0
+    # keys_to_zeroize = ["container", "notebook"]
+    # for k in keys_to_zeroize:
+    #     if lynis_report_data[k] != 1:
+    #         lynis_report_data[k] = 0
 
     # This tracks (or tracked) automation tools that were actively running.  These
     # would be things like saltstack, puppet, chef, etc.  So, I suspect 1 of 3 
@@ -277,11 +307,60 @@ def main():
     if 'automation_tool_running[]' in lynis_report_data.keys():
         if 'list' in str(type(lynis_report_data['automation_tool_running[]'])):
             lynis_report_data['automation_tool_running[]'] = dedup_list(lynis_report_data['automation_tool_running[]'])
-        pp.pprint(lynis_report_data['automation_tool_running[]'])
+        if args.verbose:
+            pp.pprint(lynis_report_data['automation_tool_running[]'])
     else:
-        cprint(f"automation_tool_running[] expected but not found in lynis report data.", "cyan")
+        if args.verbose:
+            cprint(f"automation_tool_running[] expected but not found in lynis report data.", "cyan")
 
+    # Turn the blob(s) separated by whitespace or pipe (|), into an array.
+    if 'binaries_sgid_count' in lynis_report_data.keys():
+        lynis_report_data['binaries_sgid_count'] = blob_to_list(lynis_report_data['binaries_sgid_count'])
+    else:
+        if args.verbose:
+            cprint(f"'binaries_sgid_count' is not a valid key in this data set.", "yellow")
+    if 'binaries_suid_count' in lynis_report_data.keys():
+        lynis_report_data['binaries_suid_count'] = blob_to_list(lynis_report_data['binaries_suid_count'])
+    else:
+        if args.verbose:
+            cprint(f"'binaries_suid_count' is not a valid key in this data set.", "yellow")
+    deblob_keys = ['installed_packages_array', 'systemd_binaries','tests_executed', 'tests_skipped']
+    for key in deblob_keys:
+        if key in lynis_report_data.keys():
+            lynis_report_data[key] = blob_to_list(lynis_report_data[key], '|')
+        else:
+            if args.verbose:
+                cprint(f"'{key}' is not a valid key in this data set.", "yellow")
+    # Turn "rows" of data into data structures
+    lynis_report_data['details[]'] = Data.parse_details(lynis_report_data['details[]'], True)
+    if args.debug:
+        pp.pprint(lynis_report_data['details[]'])
+    lynis_report_data['systemd_unit_file[]'] = Data.parse_systemd_unit_files(lynis_report_data['systemd_unit_file[]'], True)
+    if args.debug:
+        pp.pprint(lynis_report_data['systemd_unit_file[]'])
+
+
+    ###################################################################
+    #   BEGIN OUTPUT SECTION
+    ###################################################################
+    if args.screen:
+        if args.json:
+            if args.verbose:
+                print(f"'lynis_report_data' is of type {str(type(lynis_report_data))}")
+            # Prepare the custom objects for JSON serialization
+            _temp_list = []
+            for _obj in lynis_report_data['details[]']:
+                _tmp = _obj.to_json()
+                _temp_list.append(_tmp)
+            lynis_report_data['details[]'] = _temp_list
+            json_str = json.dumps(lynis_report_data)
+            print(f"{json_str}")
+        # else:
+        #     raise NotImplementedError()
     pp.pprint(lynis_report_data)
+    ###################################################################
+    #   END OUTPUT SECTION
+    ###################################################################
 
 if __name__=='__main__':
     main()
