@@ -161,10 +161,15 @@ def blob_to_list(textblob: str, delim: str =' ') -> list:
     parts = textblob.split(delim)
     return list(set(parts))
     
+def verbose_print(enabled: bool, message: str, color_name: str ='no_color', end: str | None =None) -> None:
+    if enabled:
+        cprint(f"INFO :: {message}")
+
 def main():
     # if we aren't root (or at least sudo), no point in going farther.
     uid = os.getuid()
     print(f"User ID: {uid}")
+
 
     pp = pprint.PrettyPrinter(indent=4)
 
@@ -266,9 +271,8 @@ def main():
                         value = 'NA'
                     else:
                         value = '&nbsp;'
-                if args.verbose:
-                    cprint(f"k: {key}, ", "cyan", end="")
-                    cprint(f"v: {value}", "yellow")
+                verbose_print(args.verbose, f"k: {key}, ", "cyan", end="")
+                verbose_print(args.verbose, f"v: {value}", "yellow")
                 if key in lynis_report_data.keys():
                     if 'list' in str(type(lynis_report_data[key])):
                         lynis_report_data[key].append(value)
@@ -355,9 +359,10 @@ def main():
             lynis_report_data['details[]'] = _temp_list
             json_str = json.dumps(lynis_report_data)
             print(f"{json_str}")
-        # else:
-        #     raise NotImplementedError()
-    pp.pprint(lynis_report_data)
+        else:
+            pp.pprint(lynis_report_data)
+            raise NotImplementedError()
+
     ###################################################################
     #   END OUTPUT SECTION
     ###################################################################
